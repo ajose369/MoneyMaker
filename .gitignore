@@ -1,0 +1,24 @@
+# Secrets — never commit
+.env
+client_secret.json
+yt_token.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated content — reproducible via the pipeline, not source
+projects/
+logs/
+topics_history.json
+
+# Music files you download are licensed for use, not redistribution —
+# keep the README (source list) but not the actual audio files.
+assets/music/*
+!assets/music/README.md
+
+# OS cruft
+Thumbs.db
+.DS_Store

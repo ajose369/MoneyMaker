@@ -1,0 +1,78 @@
+# toonpipe global configuration.
+# Per-project overrides can be placed in projects/<slug>/config.yaml
+
+# --- Content ---
+language: English            # English | Hindi | Malayalam | Tamil
+genre: "kids moral story"    # used for topic generation and music pick
+audience: "children aged 4-9 and their parents"
+scene_count: 10              # ~20-35s of narration per scene -> 4-6 min videos
+style: "2D cel animation, flat colors, thick clean outlines, warm storybook palette, soft lighting, children's picture-book illustration"
+
+# --- Video ---
+aspect_ratio: "16:9"         # "16:9" (long-form) or "9:16" (shorts)
+width: 1920
+height: 1080
+fps: 30
+video_backend: kenburns      # kenburns (free, image+motion) | veo (paid API video)
+
+# --- Image generation ---
+# local_sd: $0, fully local (Stable Diffusion XL + IP-Adapter, runs on your GPU).
+#   Character/environment consistency is weaker than Gemini's reference-image
+#   conditioning — expect more image_qc regenerations on multi-character scenes.
+# gemini: needs a Google Cloud BILLING ACCOUNT linked (the no-billing free tier
+#   gives 0 requests/day for image-output models — text calls stay free).
+#   ~$0.04-0.15/image but stronger consistency. Flip this + add billing anytime.
+image_backend: local_sd
+local_sd_model: stabilityai/stable-diffusion-xl-base-1.0
+local_sd_device: cuda        # cuda | cpu (cpu works but is very slow)
+local_sd_steps: 28
+local_sd_guidance: 6.5
+local_sd_ip_adapter_scale: 0.55   # 0=ignore references, 1=strong copy; 0.4-0.7 typical
+
+# --- Audio ---
+tts_engine: edge             # edge (free cloud, default) | omnivoice (local, needs
+                             # OmniVoice-Studio running; falls back to edge automatically)
+tts_rate: "-5%"              # edge-tts speaking rate adjustment
+line_gap_ms: 400             # silence between dialogue lines
+music_dir: "assets/music"    # drop royalty-free tracks here — see assets/music/README.md
+music_volume: 0.13
+subtitles: burn              # burn | srt | none
+
+# OmniVoice-Studio (https://github.com/debpalash/OmniVoice-Studio) — optional local TTS
+omnivoice_url: "http://localhost:3900/v1"
+omnivoice_model: omnivoice
+omnivoice_voices:            # map voice archetypes to OmniVoice voice/clone names
+  default: "default"
+  # narrator: "my-cloned-narrator"
+  # child_male: "..."
+
+# --- Quality (all automatic; no human intervention) ---
+quality_gate: auto           # auto = Claude self-reviews the script
+image_qc: true               # Claude vision approves/regenerates each image
+image_qc_max_retries: 2
+
+# --- Models ---
+# llm_provider drives story writing, self-review, metadata, and image QC:
+#   gemini — $0 on the free-tier key pool in .env (recommended until Ollama is set up)
+#   ollama — fully local (your stated plan); run `ollama pull qwen3:8b` first.
+#            Image QC still uses Gemini vision (free) in this mode.
+#   claude — best writing quality; needs ANTHROPIC_API_KEY in .env
+llm_provider: gemini
+claude_model: claude-opus-4-8
+gemini_text_model: gemini-3.5-flash
+ollama_model: qwen3:8b       # fits the 8GB RTX 5060; llama3.1:8b also works
+ollama_url: "http://localhost:11434"
+gemini_image_model: gemini-3.1-flash-image   # Nano Banana 2; gemini-3-pro-image = max quality (4K)
+veo_model: veo-3.1-lite-generate-preview     # or veo-3.1-generate-preview (higher quality, pricier)
+
+# --- Publishing ---
+publish:
+  enabled: true
+  privacy: public            # public | private | unlisted  (private = safety net, needs a manual flip)
+  category_id: "1"           # 1 = Film & Animation
+  made_for_kids: true
+  client_secrets: "client_secret.json"   # OAuth desktop-app credentials from Google Cloud Console
+  token_file: "yt_token.json"
+
+# --- Cost controls ---
+max_cost_usd_per_video: 3.00   # abort autopilot if the ledger crosses this

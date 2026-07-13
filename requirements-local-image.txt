@@ -1,0 +1,10 @@
+# Local Stable Diffusion image backend (image_backend: local_sd — the default).
+# torch is NOT listed here: install it separately with the CUDA index for your
+# GPU (RTX 50-series/Blackwell needs the cu128+ build):
+#   pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision
+# Then:
+#   pip install -r requirements-local-image.txt
+diffusers>=0.31
+transformers>=4.46
+accelerate>=1.1
+safetensors>=0.4
