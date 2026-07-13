@@ -30,11 +30,19 @@ SDXL_BUCKETS = [
     (1344, 768), (768, 1344), (1536, 640), (640, 1536),
 ]
 
+# Ordered by observed failure frequency, not alphabetically: the negative prompt
+# has its own ~77-token CLIP budget and can itself be truncated, so the two
+# defects actually seen in testing (multi-panel layout, wrong art medium) come
+# first — generic SD boilerplate (anatomy/quality) is lower priority here.
 NEGATIVE_PROMPT = (
-    "photorealistic, photo, 3d render, blurry, low quality, jpeg artifacts, "
-    "extra limbs, extra fingers, fused fingers, mutated hands, deformed, "
-    "disfigured, bad anatomy, watermark, signature, text, caption, logo, "
-    "cropped, out of frame, ugly, duplicate, scary, violent, gore"
+    "comic panel, multiple panels, panel border, grid layout, collage, contact "
+    "sheet, storyboard, split screen, multiple views, inset image, "
+    "claymation, stop motion, felt, felted wool, papercraft, paper cutout, "
+    "diorama, plasticine, watercolor, anime, manga, photorealistic, photo, "
+    "3d render, blurry, low quality, jpeg artifacts, extra limbs, fused "
+    "fingers, mutated hands, deformed, disfigured, bad anatomy, watermark, "
+    "signature, text, caption, logo, cropped, out of frame, ugly, duplicate, "
+    "scary, violent, gore"
 )
 
 
@@ -112,16 +120,20 @@ class LocalSDBackend(ImageBackend):
             num_inference_steps=steps,
             guidance_scale=guidance,
         )
+        # ip_adapter_image must be a list with one entry PER LOADED ADAPTER (we
+        # load exactly one), and that entry is itself a list of reference
+        # images for it — i.e. [[img1, img2, ...]], not a flat [img1, img2].
+        # Passing a flat list is misread as "one image per adapter" and errors
+        # as soon as more than one reference image is given.
         if ref_images:
-            # Multiple references are passed as a list to the single IP-Adapter;
-            # diffusers averages their encoded influence — a soft approximation
-            # of "match all of these," not per-image control.
-            kwargs["ip_adapter_image"] = [Image.open(p).convert("RGB") for p in ref_images]
+            # Multiple references are averaged by the single IP-Adapter — a
+            # soft approximation of "match all of these," not per-image control.
+            kwargs["ip_adapter_image"] = [[Image.open(p).convert("RGB") for p in ref_images]]
             pipe.set_ip_adapter_scale(float(self.cfg.get("local_sd_ip_adapter_scale", 0.55)))
         else:
             # diffusers requires an ip_adapter_image whenever the adapter is
             # attached, even with zero influence — use a neutral placeholder.
-            kwargs["ip_adapter_image"] = [self._NEUTRAL_IMAGE]
+            kwargs["ip_adapter_image"] = [[self._NEUTRAL_IMAGE]]
             pipe.set_ip_adapter_scale(0.0)
 
         result = pipe(**kwargs)

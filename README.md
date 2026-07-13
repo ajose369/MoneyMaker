@@ -87,8 +87,9 @@ filename is credited automatically in the video description, so name files like
 python -m toonpipe autopilot --topic "A shy firefly who is afraid of the dark"
 ```
 
-First run costs a few Claude/Gemini calls; check `projects/<slug>/out/final.mp4`
-and the printed YouTube link.
+First run costs a few Gemini text calls (free) plus local GPU time for images
+(the first run also downloads the ~7GB SDXL model, one-time); check
+`projects/<slug>/out/final.mp4` and the printed YouTube link.
 
 ### 5. Go hands-off
 
@@ -121,7 +122,7 @@ Story writing, self-review, metadata, and image QC all go through one provider:
 | Provider | Cost | Quality | Setup |
 |---|---|---|---|
 | `gemini` (**current default**) | $0 (free-tier key pool) | very good, strong Indic languages | none — your keys are in `.env` |
-| `ollama` (your local-LLM plan) | $0, fully local | okay (8B model on your 8GB GPU); weaker Malayalam/Tamil dialogue | installed; `qwen3:8b` is downloading — then set `llm_provider: ollama` |
+| `ollama` (your local-LLM plan) | $0, fully local | okay (8B model on your 8GB GPU); weaker Malayalam/Tamil dialogue | installed, `qwen3:8b` pulled — set `llm_provider: ollama` and run `ollama serve` |
 | `claude` | ~$0.5–1.5/video | best writing | add `ANTHROPIC_API_KEY` |
 
 Notes for `ollama` mode: image QC automatically stays on Gemini vision (free), so
@@ -147,6 +148,17 @@ art condition scene generation the same way Gemini's reference images did, just
 with a less precise mechanism. Expect more `image_qc` regenerations on scenes with
 2+ characters — this is a real quality tradeoff for $0, not a bug. If a channel
 starts earning, switching to `gemini` is a one-line config change.
+
+**Base-model style adherence varies by subject** (found during testing): the
+stock `stabilityai/stable-diffusion-xl-base-1.0` checkpoint mostly respects the
+configured `style:` (flat 2D cel animation held up well for a snail and a crow
+character), but some subjects — winged/ethereal "spirit" characters in
+particular — pull toward SDXL's baked-in anime bias regardless of the style
+prompt. The negative prompt now excludes `anime`/`manga` as a mitigation, but
+if a channel needs tighter, consistent-every-time style control, the real fix
+is swapping `local_sd_model` for a checkpoint fine-tuned on flat/cel-shaded
+illustration (several exist on Hugging Face/Civitai) — not yet vetted/wired in
+here, since that needs its own evaluation pass.
 
 ## Configuration (`config.yaml`)
 

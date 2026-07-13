@@ -97,12 +97,27 @@ def make_thumbnail(cfg: Config, m: Manifest) -> Path:
     img = Image.composite(overlay, img, grad.resize((W, H)))
 
     draw = ImageDraw.Draw(img)
-    text = m.meta.thumbnail_text.upper()
+    # Defensive: never trust the LLM to have actually followed "max 5 words" —
+    # weaker/local models sometimes echo the full title instead (observed with
+    # qwen3:8b, including title-separator "|" characters). Strip characters the
+    # fallback font can't render (emoji show as tofu boxes) and separator
+    # punctuation BEFORE splitting into words, so a stray emoji or "|" doesn't
+    # waste one of the 5 word slots as empty/junk — then cap word count, so a
+    # bad LLM response degrades to a shorter thumbnail, not an overflowing one.
+    raw = "".join(c for c in m.meta.thumbnail_text if ord(c) < 0x2000)
+    words = [w for w in raw.split() if any(ch.isalnum() for ch in w)]
+    text = " ".join(words[:5]).upper()
+    if not text:
+        text = m.meta.title.split("|")[0].strip()[:20].upper()
+
     size = 130
     font = _load_font(size)
     while draw.textlength(text, font=font) > W - 120 and size > 40:
         size -= 8
         font = _load_font(size)
+    # Floor hit and still too wide (very long words) — truncate rather than overflow.
+    while draw.textlength(text, font=font) > W - 120 and len(text) > 4:
+        text = text[:-2].rstrip() + "…"
     tw = draw.textlength(text, font=font)
     x, y = (W - tw) // 2, H - size - 60
     for dx, dy in ((-3, -3), (3, -3), (-3, 3), (3, 3), (0, 0)):

@@ -78,6 +78,14 @@ def generate_story(cfg: Config, llm: LLM, m: Manifest) -> Story:
             "the 2-3 most visually distinctive traits first. The image model silently "
             "truncates long descriptions, so padding or filler adjectives cost real "
             "detail; every word should be load-bearing.\n"
+            "- design_prompt and image_prompt describe WHAT is depicted only — the "
+            "subject's shape, colors, and pose. They must NEVER specify an art medium, "
+            "rendering technique, or material (no 'stop-motion', 'felted wool', "
+            "'papercraft', 'claymation', '3D render', 'watercolor', 'diorama', etc.). "
+            "The visual medium is fixed separately for the whole video and describing "
+            "one in these fields will corrupt every image.\n"
+            "- Every scene's image_prompt is ONE single moment/composition — never "
+            "describe a sequence, multiple panels, or 'before and after'.\n"
             "- Nothing scary, violent, branded, or unsafe for young children."
         ),
         user=f"Write the full story for this premise:\n\n{m.topic}",
@@ -99,9 +107,18 @@ def self_review(cfg: Config, llm: LLM, m: Manifest) -> None:
             "kids, and anything that reads as generic mass-produced AI content. "
             "Then output the IMPROVED story in the same schema (same scene count, "
             "same language for dialogue). Distinctiveness and emotional specificity "
-            "matter: this must feel hand-crafted. Keep design_prompt/image_prompt "
-            "fields under 40 words each, front-loading the most distinctive visual "
-            "traits first — the image model silently truncates long descriptions."
+            "matter: this must feel hand-crafted — but achieve that through the WRITING "
+            "(plot, voice, character quirks, sensory detail in the prose), never by "
+            "inventing an art medium or rendering style in design_prompt/image_prompt. "
+            "Those fields describe only the subject's shape, colors, and pose — the "
+            "visual medium is fixed centrally for the whole video and is not yours to "
+            "set; do not add 'stop-motion', 'felted wool', 'papercraft', 'claymation', "
+            "'3D render', 'watercolor', 'diorama', or any other medium/material word to "
+            "them, even if the draft already contains one — strip it out. Each scene's "
+            "image_prompt must stay ONE single moment/composition, never a sequence or "
+            "multiple panels. Keep design_prompt/image_prompt fields under 40 words "
+            "each, front-loading the most distinctive visual traits first — the image "
+            "model silently truncates long descriptions."
         ),
         user="Review and improve this draft:\n\n" + m.story.model_dump_json(indent=2),
         schema=ReviewedStory,

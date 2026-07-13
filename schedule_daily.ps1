@@ -12,7 +12,11 @@ New-Item -ItemType Directory -Force $log | Out-Null
 $python = (Get-Command python -ErrorAction SilentlyContinue).Source
 if (-not $python) { $python = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" }
 
-$action = "cd /d `"$root`" && `"$python`" -m toonpipe autopilot >> `"$log\autopilot_%DATE:/=-%.log`" 2>&1"
+# -u: unbuffered stdout/stderr — without it, Python fully buffers output when
+# redirected to a file, so the log stays empty for the entire run (sometimes
+# 20+ minutes, e.g. during a Gemini transient-error backoff) and only appears
+# all at once at exit. That makes an in-progress overnight run look hung.
+$action = "cd /d `"$root`" && `"$python`" -u -m toonpipe autopilot >> `"$log\autopilot_%DATE:/=-%.log`" 2>&1"
 
 schtasks /Create /F /TN $TaskName /SC DAILY /ST $Time /TR "cmd /c $action"
 Write-Host "Scheduled '$TaskName' daily at $Time. Logs: $log"

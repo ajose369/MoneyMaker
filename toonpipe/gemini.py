@@ -34,6 +34,14 @@ def _is_auth_error(e: Exception) -> bool:
             or "401" in msg or "403" in msg or "PERMISSION_DENIED" in msg)
 
 
+def _is_transient_error(e: Exception) -> bool:
+    """Server-side blips (high demand, momentary outage) — not this key's fault,
+    so retry the SAME key with backoff rather than burning a rotation/cooldown."""
+    msg = str(e)
+    return ("503" in msg or "UNAVAILABLE" in msg or "overloaded" in msg.lower()
+            or "500" in msg or "INTERNAL" in msg or "high demand" in msg.lower())
+
+
 class GeminiPool:
     """Round-robin over multiple API keys; rotate on quota/auth failures."""
 
@@ -64,14 +72,22 @@ class GeminiPool:
         return [i for i in range(len(self.keys))
                 if i not in self.dead and self.cooldown.get(i, 0) <= now]
 
-    def run(self, fn: Callable[[Any], Any], what: str = "gemini call") -> Any:
-        """Execute fn(client), rotating to the next key on quota/auth errors.
+    def run(self, fn: Callable[[Any], Any], what: str = "gemini call",
+            max_transient_rounds: int = 6) -> Any:
+        """Execute fn(client), rotating to the next key on quota/auth errors and
+        backing off on transient server errors (503/high-demand) — those are
+        Google's problem, not this key's, so retry rather than raise. Callers
+        (autopilot, scheduled runs) must not die to a momentary blip.
 
-        Non-quota errors are raised immediately (callers keep their own retry
-        loops for transient failures).
+        max_transient_rounds bounds how long this can block: callers that fail
+        open on error (e.g. image QC — approve-if-unavailable) should pass a
+        small number so a Gemini outage costs seconds, not minutes, since the
+        outcome (proceed anyway) is the same either way. Callers with no
+        fallback (story/metadata generation) should keep the generous default.
         """
         last_err: Exception | None = None
-        for _round in range(3):
+        transient_rounds = 0
+        for _round in range(max_transient_rounds):
             usable = self._usable()
             if not usable:
                 if len(self.dead) == len(self.keys):
@@ -88,6 +104,7 @@ class GeminiPool:
                 print(f"    [gemini] all keys cooling down, sleeping {int(wait)}s")
                 time.sleep(wait)
                 continue
+            round_all_transient = True
             for i in usable:
                 try:
                     result = fn(self._client(i))
@@ -101,8 +118,16 @@ class GeminiPool:
                     elif _is_auth_error(e):
                         print(f"    [gemini] key #{i + 1} rejected (auth) — marking dead")
                         self.dead.add(i)
+                    elif _is_transient_error(e):
+                        print(f"    [gemini] key #{i + 1} transient server error — will retry")
                     else:
+                        round_all_transient = False
                         raise
+            if round_all_transient:
+                transient_rounds += 1
+                wait = min(10 * 2 ** transient_rounds, 120)
+                print(f"    [gemini] all keys hit transient errors, backing off {wait}s")
+                time.sleep(wait)
         raise RuntimeError(f"Gemini call failed on every key ({what})") from last_err
 
     def check(self) -> list[tuple[int, bool, str]]:

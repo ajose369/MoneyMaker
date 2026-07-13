@@ -88,7 +88,12 @@ class VideoMeta(BaseModel):
     title: str = Field(description="Clickable YouTube title, under 90 chars, no clickbait lies")
     description: str = Field(description="2-3 paragraph YouTube description. Do NOT include chapter timestamps; they are appended automatically.")
     tags: list[str] = Field(description="10-20 YouTube tags")
-    thumbnail_text: str = Field(description="2-5 punchy words to overlay on the thumbnail")
+    thumbnail_text: str = Field(
+        description="MAXIMUM 5 words, no emoji, no punctuation. This is NOT the "
+        "title and NOT a sentence — it's a short punchy phrase overlaid in huge "
+        "letters on the thumbnail image (e.g. 'FLICK FINDS HIS SPARK'). Longer "
+        "text will be truncated."
+    )
 
 
 # ---------- Runtime bookkeeping ----------

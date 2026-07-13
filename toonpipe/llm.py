@@ -225,7 +225,9 @@ class LLM:
                 },
             )
         try:
-            resp = self._pool.run(call, what="image_qc")
+            # QC fails open on any error, so a Gemini outage should cost seconds,
+            # not the full patient retry budget — same outcome either way.
+            resp = self._pool.run(call, what="image_qc", max_transient_rounds=2)
             obj = getattr(resp, "parsed", None) or ImageVerdict.model_validate_json(resp.text)
             self.ledger.record("image_qc", model, 0.0)
             return obj
