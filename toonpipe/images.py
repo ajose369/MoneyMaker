@@ -53,6 +53,10 @@ class ImageGen:
     # ---------- stages ----------
 
     def _style(self) -> str:
+        # In every template below this lands after a ~40-word design/image
+        # prompt, deep into local_sd's 77-token CLIP budget — keep this short
+        # (under ~25 tokens) or it gets silently truncated away and generation
+        # falls back to SDXL's default (photoreal/diorama-ish) look.
         return self.cfg.get("style", "2D cel animation, flat colors")
 
     def _ar_text(self) -> str:
@@ -73,16 +77,20 @@ class ImageGen:
             # scene, so a multi-panel sheet gets reproduced as multiple copies
             # of the character instead of one character in the scene.
             #
-            # Identity content comes FIRST and framing boilerplate LAST: SDXL's
-            # CLIP text encoder silently truncates at 77 tokens, so if anything
-            # gets dropped it must be the generic framing, never the character's
-            # actual design (a trailing description can vanish entirely and
-            # produce a generic figure instead of the intended character).
+            # Style FIRST, identity second, framing boilerplate LAST: SDXL's CLIP
+            # text encoder silently truncates at 77 tokens, and a ~40-word
+            # design_prompt alone can eat most of that budget — measured with
+            # the real tokenizer, style: "..." placed after the description
+            # routinely got truncated away entirely, silently falling back to
+            # SDXL's default (photoreal/diorama-ish) look. Style is short by
+            # convention (see _style()) so it always survives; if anything
+            # gets dropped it's the trailing framing text — harmless for
+            # local_sd, which ignores {self._ar_text()} anyway (uses real
+            # width/height instead).
             prompt = (
-                f"{ch.name}. {ch.design_prompt} "
+                f"{self._style()}. {ch.name}: {ch.design_prompt} "
                 f"Single full-body character illustration, three-quarter view, standing "
-                f"neutral pose, style: {self._style()}, plain light background, "
-                f"{self._ar_text()} image."
+                f"neutral pose, plain light background, {self._ar_text()} image."
             )
             print(f"  [characters] {ch.id}")
             self._generate_with_qc(prompt, [], out,
@@ -96,8 +104,8 @@ class ImageGen:
             rel = f"assets/environments/{env.id}.png"
             out = m.path_for(rel)
             prompt = (
-                f"{env.image_prompt} "
-                f"Background environment art, no characters, no text, style: {self._style()}, "
+                f"{self._style()}. {env.image_prompt} "
+                f"Background environment art, no characters, no text, "
                 f"{self._ar_text()} image."
             )
             print(f"  [environments] {env.id}")
@@ -119,8 +127,8 @@ class ImageGen:
                 if cid in m.character_images:
                     refs.append(m.path_for(m.character_images[cid]))
             prompt = (
-                f"{scene.image_prompt} "
-                f"One finished animation frame, style: {self._style()}, {self._ar_text()}. "
+                f"{self._style()}. {scene.image_prompt} "
+                f"One finished animation frame, {self._ar_text()}. "
                 f"Match the attached reference images (background location, then character "
                 f"designs). No text, no watermarks, no panel borders."
             )

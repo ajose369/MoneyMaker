@@ -6,7 +6,7 @@ language: English            # English | Hindi | Malayalam | Tamil
 genre: "kids moral story"    # used for topic generation and music pick
 audience: "children aged 4-9 and their parents"
 scene_count: 10              # ~20-35s of narration per scene -> 4-6 min videos
-style: "2D cel animation, flat colors, thick clean outlines, warm storybook palette, soft lighting, children's picture-book illustration"
+style: "flat 2D cel-shaded cartoon, thick black outlines, flat matte colors, storybook illustration style"
 
 # --- Video ---
 aspect_ratio: "16:9"         # "16:9" (long-form) or "9:16" (shorts)

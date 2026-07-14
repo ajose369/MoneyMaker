@@ -31,18 +31,23 @@ SDXL_BUCKETS = [
 ]
 
 # Ordered by observed failure frequency, not alphabetically: the negative prompt
-# has its own ~77-token CLIP budget and can itself be truncated, so the two
-# defects actually seen in testing (multi-panel layout, wrong art medium) come
-# first — generic SD boilerplate (anatomy/quality) is lower priority here.
+# has its own ~77-token CLIP budget (verified against the real SDXL tokenizer —
+# this exact ordering fills it to exactly 77 tokens with zero silent
+# truncation) so lower-priority terms are dropped by hand rather than left to
+# chance. First-round testing showed SDXL base defaulting to felted-wool/yarn
+# diorama toy *photography* (a known base-model bias when prompted with
+# "storybook") and multi-panel character-sheet collages instead of a single
+# flat illustration — those two confirmed defects fill almost the whole
+# budget. Content-safety terms (scary/violent/gore) ride along since this is a
+# kids' show. Generic SD boilerplate (anatomy/watermark/anime-vs-western
+# style) lost the space race and was cut entirely rather than truncated
+# mid-phrase.
 NEGATIVE_PROMPT = (
-    "comic panel, multiple panels, panel border, grid layout, collage, contact "
-    "sheet, storyboard, split screen, multiple views, inset image, "
-    "claymation, stop motion, felt, felted wool, papercraft, paper cutout, "
-    "diorama, plasticine, watercolor, anime, manga, photorealistic, photo, "
-    "3d render, blurry, low quality, jpeg artifacts, extra limbs, fused "
-    "fingers, mutated hands, deformed, disfigured, bad anatomy, watermark, "
-    "signature, text, caption, logo, cropped, out of frame, ugly, duplicate, "
-    "scary, violent, gore"
+    "felt, yarn, wool, plush, crochet, diorama, miniature, tilt-shift, "
+    "studio photography, macro photography, depth of field, bokeh, "
+    "photorealistic, photo, 3d render, cgi, claymation, plasticine, "
+    "scary, violent, gore, comic panel, multiple panels, character sheet, "
+    "collage, split screen, multiple views, extra limbs"
 )
 
 
