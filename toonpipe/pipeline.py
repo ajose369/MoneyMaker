@@ -46,7 +46,7 @@ def run_stage(stage: str, m: Manifest, cfg: Config) -> None:
             if m.review_issues:
                 print("  review fixed: " + "; ".join(m.review_issues[:5]))
         else:
-            story_mod.write_script_md(m)
+            story_mod.write_script_md(m, cfg)
             print(f"  MANUAL GATE: edit {m.path_for('script.md')} / manifest.json, "
                   "then run the next stage.")
         m.mark("story")
@@ -196,6 +196,22 @@ def check() -> bool:
               "linked to work — a 429 error with 'limit: 0' during the characters "
               "stage means it isn't. This can't be checked without spending money, "
               "so it isn't included in the pass/fail above.")
+    elif image_backend == "flow":
+        print("  [NOTE] flow image backend is semi-automated: each video pauses at "
+              "the characters stage until you run the flow_prompts.txt batch "
+              "through the ZAPI FLOW extension and drop the downloads into the "
+              "project's flow_inbox/ folder.")
+    elif image_backend == "flow_auto":
+        try:
+            import playwright  # noqa: F401
+            report("flow_auto: playwright", True)
+        except ImportError:
+            report("flow_auto: playwright", False, "pip install playwright")
+        from .config import ROOT as _root
+        profile = _root / str(cfg.get("flow_profile_dir", ".flow_profile"))
+        signed_in = profile.exists() and any(profile.iterdir())
+        report("flow_auto: signed-in profile", signed_in,
+               "" if signed_in else "run: python -m toonpipe flow-login")
     if provider == "ollama":
         try:
             import requests as rq

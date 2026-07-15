@@ -50,7 +50,7 @@ class ImageGen:
         # After exhausting retries, generate once more and accept it — the show must go on.
         return self.backend.generate(prompt, refs, out_path)
 
-    # ---------- stages ----------
+    # ---------- shared bits ----------
 
     def _style(self) -> str:
         # In every template below this lands after a ~40-word design/image
@@ -66,32 +66,77 @@ class ImageGen:
         return "wide 16:9 landscape" if self.cfg.get("aspect_ratio", "16:9") == "16:9" \
             else "tall 9:16 vertical"
 
+    # ---------- prompt templates (shared by the stage loops and the flow export) ----------
+
+    def _character_prompt(self, ch) -> str:
+        # A SINGLE clean full-body pose, not a multi-view turnaround grid:
+        # reference-image conditioning (both Gemini's and IP-Adapter's) tends
+        # to leak the *composition* of the reference into every generated
+        # scene, so a multi-panel sheet gets reproduced as multiple copies
+        # of the character instead of one character in the scene.
+        #
+        # Style FIRST, identity second, framing boilerplate LAST: SDXL's CLIP
+        # text encoder silently truncates at 77 tokens, and a ~40-word
+        # design_prompt alone can eat most of that budget — measured with
+        # the real tokenizer, style: "..." placed after the description
+        # routinely got truncated away entirely, silently falling back to
+        # SDXL's default (photoreal/diorama-ish) look. Style is short by
+        # convention (see _style()) so it always survives; if anything
+        # gets dropped it's the trailing framing text — harmless for
+        # local_sd, which ignores {self._ar_text()} anyway (uses real
+        # width/height instead).
+        return (
+            f"{self._style()}. {ch.name}: {ch.design_prompt} "
+            f"Single full-body character illustration, three-quarter view, standing "
+            f"neutral pose, plain light background, {self._ar_text()} image."
+        )
+
+    def _environment_prompt(self, env) -> str:
+        return (
+            f"{self._style()}. {env.image_prompt} "
+            f"Background environment art, no characters, no text, "
+            f"{self._ar_text()} image."
+        )
+
+    def _scene_prompt(self, scene, with_refs: bool) -> str:
+        ref_text = (
+            "Match the attached reference images (background location, then character "
+            "designs). " if with_refs else ""
+        )
+        return (
+            f"{self._style()}. {scene.image_prompt} "
+            f"One finished animation frame, {self._ar_text()}. "
+            f"{ref_text}No text, no watermarks, no panel borders."
+        )
+
+    # ---------- flow (semi-automated) support ----------
+
+    def _flow_prepare_if_needed(self, m: Manifest) -> None:
+        """image_backend 'flow' gets all images from one manual ZAPI FLOW round:
+        import whatever is in the inbox, or halt the stage with instructions."""
+        if self.cfg.get("image_backend", "local_sd") != "flow":
+            return
+        assert m.story
+        from .imagegen.flow_bulk import prepare_flow_images
+        expected: list[tuple[str, str]] = []
+        for ch in m.story.characters:
+            expected.append((self._character_prompt(ch), f"assets/characters/{ch.id}.png"))
+        for env in m.story.environments:
+            expected.append((self._environment_prompt(env), f"assets/environments/{env.id}.png"))
+        for scene in m.story.scenes:
+            expected.append((self._scene_prompt(scene, with_refs=False),
+                             f"assets/scenes/scene_{scene.seq:03d}.png"))
+        prepare_flow_images(self.cfg, m, expected)
+
+    # ---------- stages ----------
+
     def characters(self, m: Manifest) -> None:
         assert m.story
+        self._flow_prepare_if_needed(m)
         for ch in m.story.characters:
             rel = f"assets/characters/{ch.id}.png"
             out = m.path_for(rel)
-            # A SINGLE clean full-body pose, not a multi-view turnaround grid:
-            # reference-image conditioning (both Gemini's and IP-Adapter's) tends
-            # to leak the *composition* of the reference into every generated
-            # scene, so a multi-panel sheet gets reproduced as multiple copies
-            # of the character instead of one character in the scene.
-            #
-            # Style FIRST, identity second, framing boilerplate LAST: SDXL's CLIP
-            # text encoder silently truncates at 77 tokens, and a ~40-word
-            # design_prompt alone can eat most of that budget — measured with
-            # the real tokenizer, style: "..." placed after the description
-            # routinely got truncated away entirely, silently falling back to
-            # SDXL's default (photoreal/diorama-ish) look. Style is short by
-            # convention (see _style()) so it always survives; if anything
-            # gets dropped it's the trailing framing text — harmless for
-            # local_sd, which ignores {self._ar_text()} anyway (uses real
-            # width/height instead).
-            prompt = (
-                f"{self._style()}. {ch.name}: {ch.design_prompt} "
-                f"Single full-body character illustration, three-quarter view, standing "
-                f"neutral pose, plain light background, {self._ar_text()} image."
-            )
+            prompt = self._character_prompt(ch)
             print(f"  [characters] {ch.id}")
             self._generate_with_qc(prompt, [], out,
                                    f"A single full-body illustration of one cartoon character: {ch.design_prompt}")
@@ -100,14 +145,11 @@ class ImageGen:
 
     def environments(self, m: Manifest) -> None:
         assert m.story
+        self._flow_prepare_if_needed(m)
         for env in m.story.environments:
             rel = f"assets/environments/{env.id}.png"
             out = m.path_for(rel)
-            prompt = (
-                f"{self._style()}. {env.image_prompt} "
-                f"Background environment art, no characters, no text, "
-                f"{self._ar_text()} image."
-            )
+            prompt = self._environment_prompt(env)
             print(f"  [environments] {env.id}")
             self._generate_with_qc(prompt, [], out,
                                    f"An empty cartoon background of: {env.image_prompt}")
@@ -116,6 +158,7 @@ class ImageGen:
 
     def scene_images(self, m: Manifest) -> None:
         assert m.story
+        self._flow_prepare_if_needed(m)
         from .manifest import SceneAsset
         for scene in m.story.scenes:
             key = str(scene.seq)
@@ -126,12 +169,7 @@ class ImageGen:
             for cid in scene.characters:
                 if cid in m.character_images:
                     refs.append(m.path_for(m.character_images[cid]))
-            prompt = (
-                f"{self._style()}. {scene.image_prompt} "
-                f"One finished animation frame, {self._ar_text()}. "
-                f"Match the attached reference images (background location, then character "
-                f"designs). No text, no watermarks, no panel borders."
-            )
+            prompt = self._scene_prompt(scene, with_refs=bool(refs))
             print(f"  [scenes] scene {scene.seq:03d}")
             self._generate_with_qc(prompt, refs, out, f"A cartoon frame showing: {scene.image_prompt}")
             asset.image = rel

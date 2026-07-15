@@ -60,7 +60,7 @@ def _voice_for(cfg: Config, m: Manifest, speaker: str) -> tuple[str, str]:
     lang = str(cfg.get("language", "English")).lower()
     table = VOICES.get(lang, VOICES["english"])
     if speaker == "narrator" or not m.story:
-        return table["narrator"], "+0Hz"
+        return str(cfg.get("narrator_voice") or table["narrator"]), "+0Hz"
     for i, ch in enumerate(m.story.characters):
         if ch.id == speaker:
             return table.get(ch.voice, table["adult_male"]), PITCHES[i % len(PITCHES)]

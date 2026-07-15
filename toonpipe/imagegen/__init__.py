@@ -15,4 +15,12 @@ def get_image_backend(cfg: Config, llm: LLM) -> ImageBackend:
     if name == "gemini":
         from .gemini_backend import GeminiImageBackend
         return GeminiImageBackend(cfg, llm)
-    raise ValueError(f"Unknown image_backend '{name}' (expected local_sd or gemini)")
+    if name == "flow":
+        from .flow_bulk import FlowBulkBackend
+        return FlowBulkBackend(cfg, llm)
+    if name == "flow_auto":
+        from .flow_playwright import FlowAutoBackend
+        return FlowAutoBackend(cfg, llm)
+    raise ValueError(
+        f"Unknown image_backend '{name}' (expected local_sd, gemini, flow or flow_auto)"
+    )

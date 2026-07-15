@@ -96,7 +96,12 @@ def assemble(cfg: Config, m: Manifest) -> Path:
     args: list[str] = ["-i", str(joined)]
     vf = None
     if subs_mode == "burn" and srt:
-        vf = f"subtitles='{escape_filter_path(srt)}':force_style='Fontsize=16,Outline=1,MarginV=28'"
+        style = "Fontsize=16,Outline=1,MarginV=28"
+        # Indic scripts need an explicit font — libass's default pick can render
+        # Malayalam/Tamil/Hindi as boxes. Nirmala UI ships with Windows 10/11.
+        if str(cfg.get("language", "English")).lower() in ("hindi", "malayalam", "tamil"):
+            style = "FontName=Nirmala UI," + style
+        vf = f"subtitles='{escape_filter_path(srt)}':force_style='{style}'"
 
     if music:
         args += ["-stream_loop", "-1", "-i", str(music)]

@@ -2,9 +2,15 @@
 # Per-project overrides can be placed in projects/<slug>/config.yaml
 
 # --- Content ---
+# content_type drives the whole script engine:
+#   explainer — curiosity/facts video (Jitzz Media style): one narrator voiceover,
+#               question-hook title ("How do dogs know an earthquake is coming? 😱"),
+#               animated illustrations of real, verifiable facts.
+#   story     — character-driven kids' moral fable with dialogue (the original mode).
+content_type: explainer
 language: English            # English | Hindi | Malayalam | Tamil
-genre: "kids moral story"    # used for topic generation and music pick
-audience: "children aged 4-9 and their parents"
+genre: "curiosity facts explainer"   # used for topic generation and music pick
+audience: "curious viewers and families"
 scene_count: 10              # ~20-35s of narration per scene -> 4-6 min videos
 style: "flat 2D cel-shaded cartoon, thick black outlines, flat matte colors, storybook illustration style"
 
@@ -20,9 +26,30 @@ video_backend: kenburns      # kenburns (free, image+motion) | veo (paid API vid
 #   Character/environment consistency is weaker than Gemini's reference-image
 #   conditioning — expect more image_qc regenerations on multi-character scenes.
 # gemini: needs a Google Cloud BILLING ACCOUNT linked (the no-billing free tier
-#   gives 0 requests/day for image-output models — text calls stay free).
-#   ~$0.04-0.15/image but stronger consistency. Flip this + add billing anytime.
-image_backend: local_sd
+#   gives 0 requests/day for image-output models — re-verified 2026-07-14:
+#   'limit: 0' 429s on all keys). ~$0.04-0.15/image but stronger consistency.
+# flow: $0, Imagen-quality via Google Flow (labs.google/fx/tools/flow) + the
+#   ZAPI FLOW Chrome extension — ONE ~2-min manual step per video: the stage
+#   halts after writing flow_prompts.txt; paste it into the extension (serial
+#   numbers ON), move the auto-downloads into <project>/flow_inbox/, re-run.
+#   Text prompts only (no reference conditioning) and imported images skip
+#   vision QC.
+# flow_auto: $0, same Flow images but FULLY automated — Playwright drives your
+#   installed Chrome (separate profile). One-time setup:
+#     pip install playwright && python -m toonpipe flow-login
+#   Gray area under Google's ToS (UI automation) — a dedicated Google account
+#   is recommended. Vision QC stays active in this mode.
+image_backend: flow_auto
+flow_inbox: flow_inbox       # flow backend: folder inside the project dir watched for downloads
+flow_profile_dir: .flow_profile   # flow_auto: browser profile holding the Google sign-in
+# flow_project_url: ""       # flow_auto: reuse one Flow project (recommended — open it
+                             # once, set output type to Image; the setting persists)
+flow_headless: false         # true = no browser window at all (slightly higher
+                             # anti-bot detection risk); test before relying on it
+flow_offscreen: true         # safer invisibility: real Chrome window parked far
+                             # off-screen — you won't see it, Google can't tell
+flow_min_gap_s: 12           # flow_auto: polite random delay between generations
+flow_max_gap_s: 30
 local_sd_model: stabilityai/stable-diffusion-xl-base-1.0
 local_sd_device: cuda        # cuda | cpu (cpu works but is very slow)
 local_sd_steps: 28
@@ -32,6 +59,9 @@ local_sd_ip_adapter_scale: 0.55   # 0=ignore references, 1=strong copy; 0.4-0.7 
 # --- Audio ---
 tts_engine: edge             # edge (free cloud, default) | omnivoice (local, needs
                              # OmniVoice-Studio running; falls back to edge automatically)
+# narrator_voice: ml-IN-MidhunNeural   # optional edge-tts voice override for the
+                             # narrator (default for Malayalam is the female
+                             # ml-IN-SobhanaNeural; MidhunNeural is the male voice)
 tts_rate: "-5%"              # edge-tts speaking rate adjustment
 line_gap_ms: 400             # silence between dialogue lines
 music_dir: "assets/music"    # drop royalty-free tracks here — see assets/music/README.md
@@ -56,6 +86,9 @@ image_qc_max_retries: 2
 #   gemini — $0 on the free-tier key pool in .env (recommended until Ollama is set up)
 #   ollama — fully local (your stated plan); run `ollama pull qwen3:8b` first.
 #            Image QC still uses Gemini vision (free) in this mode.
+#            Tested 2026-07-14: qwen3:8b's Malayalam writing is NOT publishable
+#            (wrong subject, duplicated lines, ignores English-only prompt
+#            rules) — fine for plumbing tests, use gemini/claude for real videos.
 #   claude — best writing quality; needs ANTHROPIC_API_KEY in .env
 llm_provider: gemini
 claude_model: claude-opus-4-8
@@ -68,9 +101,10 @@ veo_model: veo-3.1-lite-generate-preview     # or veo-3.1-generate-preview (high
 # --- Publishing ---
 publish:
   enabled: true
-  privacy: public            # public | private | unlisted  (private = safety net, needs a manual flip)
-  category_id: "1"           # 1 = Film & Animation
-  made_for_kids: true
+  privacy: private           # public | private | unlisted  (private = safety net: review in
+                             # YouTube Studio and flip to public manually)
+  category_id: "27"          # 27 = Education (explainers); use 1 = Film & Animation for story mode
+  made_for_kids: false       # explainers target a general audience; set true for kids' stories
   client_secrets: "client_secret.json"   # OAuth desktop-app credentials from Google Cloud Console
   token_file: "yt_token.json"
 

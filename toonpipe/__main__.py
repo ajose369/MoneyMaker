@@ -8,6 +8,7 @@
   python -m toonpipe status
   python -m toonpipe check                            (validate keys/tools, no secrets printed)
   python -m toonpipe auth                             (one-time YouTube OAuth)
+  python -m toonpipe flow-login                       (one-time Google sign-in for flow_auto images)
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status", help="list projects and their progress")
     sub.add_parser("check", help="validate keys/tools/models without running anything")
     sub.add_parser("auth", help="one-time interactive YouTube OAuth")
+    sub.add_parser("flow-login", help="one-time Google sign-in for the flow_auto image backend")
 
     args = parser.parse_args(argv)
 
@@ -74,6 +76,10 @@ def main(argv: list[str] | None = None) -> int:
         from .publish import get_credentials
         get_credentials(load_config(), interactive=True)
         print("YouTube auth complete — uploads will now run unattended.")
+
+    elif args.cmd == "flow-login":
+        from .imagegen.flow_playwright import flow_login
+        flow_login(load_config())
 
     return 0
 

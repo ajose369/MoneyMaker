@@ -9,3 +9,4 @@ google-api-python-client>=2.130
 google-auth-oauthlib>=1.2
 google-auth-httplib2>=0.2
 requests>=2.31
+playwright>=1.60          # flow_auto image backend (drives Chrome; no browser download needed)

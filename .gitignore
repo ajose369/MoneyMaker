@@ -2,6 +2,8 @@
 .env
 client_secret.json
 yt_token.json
+# flow_auto browser profile — holds Google session cookies
+.flow_profile/
 
 # Python
 __pycache__/

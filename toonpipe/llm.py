@@ -240,21 +240,30 @@ class LLM:
     def _ollama_structured(self, kind: str, system: str, user: str, schema: type[T]) -> T:
         url = self.cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         last_err: Exception | None = None
+        # Thinking models (qwen3, deepseek-r1, …) burn minutes of <think> tokens
+        # before emitting the schema-constrained JSON — measured 22s with
+        # thinking off vs >240s (timeout) with it on for a trivial schema on
+        # qwen3:8b. Disable it; models that reject the option get one retry
+        # without the flag.
+        send_think = True
         for _ in range(3):
-            r = requests.post(
-                f"{url}/api/chat",
-                json={
-                    "model": self.cfg.get("ollama_model", "llama3.1"),
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "format": schema.model_json_schema(),
-                    "stream": False,
-                    "options": {"num_ctx": 16384},
-                },
-                timeout=600,
-            )
+            body = {
+                "model": self.cfg.get("ollama_model", "llama3.1"),
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "format": schema.model_json_schema(),
+                "stream": False,
+                "options": {"num_ctx": 16384},
+            }
+            if send_think:
+                body["think"] = False
+            r = requests.post(f"{url}/api/chat", json=body, timeout=600)
+            if send_think and r.status_code == 400 and "think" in r.text.lower():
+                send_think = False
+                body.pop("think")
+                r = requests.post(f"{url}/api/chat", json=body, timeout=600)
             r.raise_for_status()
             content = r.json()["message"]["content"]
             try:
