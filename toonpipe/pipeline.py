@@ -212,6 +212,33 @@ def check() -> bool:
         signed_in = profile.exists() and any(profile.iterdir())
         report("flow_auto: signed-in profile", signed_in,
                "" if signed_in else "run: python -m toonpipe flow-login")
+    if provider == "nvidia":
+        import os
+        key = os.environ.get("NVIDIA_API_KEY", "").strip()
+        if not key:
+            report("NVIDIA_API_KEY", False, "empty in .env")
+        else:
+            try:
+                import requests as rq
+                model = cfg.get("nvidia_model", "qwen/qwen3.5-122b-a10b")
+                r = rq.post(
+                    str(cfg.get("nvidia_url", "https://integrate.api.nvidia.com/v1")).rstrip("/")
+                    + "/chat/completions",
+                    headers={"Authorization": f"Bearer {key}"},
+                    json={"model": model,
+                          "messages": [{"role": "user", "content": "Say OK"}],
+                          "max_tokens": 8},
+                    timeout=60,
+                )
+                # 404 here means "listed in the catalogue but not enabled for
+                # this account" — the most common NIM trap, so name it.
+                note = "" if r.ok else (
+                    f"model not enabled for this account: {model}" if r.status_code == 404
+                    else f"HTTP {r.status_code}")
+                report(f"nvidia ({model})", r.ok, note)
+            except Exception as e:
+                report("nvidia", False, str(e)[:110])
+
     if provider == "ollama":
         try:
             import requests as rq

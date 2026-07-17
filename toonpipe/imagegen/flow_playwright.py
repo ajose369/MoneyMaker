@@ -281,11 +281,25 @@ class FlowDriver:
         return False
 
     def _visible_image_srcs(self) -> set[str]:
-        return set(self.page.evaluate(
+        return set(self._ordered_image_srcs())
+
+    def _ordered_image_srcs(self) -> list[str]:
+        """Result image srcs in DOM order (dedup, first occurrence wins).
+        Batch matching relies on this order lining up with prompt order —
+        which direction the gallery inserts new tiles is verified live before
+        batching is trusted (flow_batch_reverse flips it if newest-first)."""
+        srcs = self.page.evaluate(
             "() => Array.from(document.querySelectorAll('img'))"
             ".filter(i => i.naturalWidth >= 400)"
             ".map(i => i.currentSrc || i.src).filter(Boolean)"
-        ))
+        )
+        seen: set[str] = set()
+        out: list[str] = []
+        for s in srcs:
+            if s not in seen:
+                seen.add(s)
+                out.append(s)
+        return out
 
     def _fetch_image(self, src: str) -> bytes:
         if src.startswith(("blob:", "data:")):
@@ -385,14 +399,124 @@ class FlowDriver:
         )
 
 
+    def generate_batch(self, prompts: list[str], out_paths: list[Path],
+                       timeout_s: int | None = None) -> list[Path]:
+        """Ask the agent for N images in ONE message to save agent-quota (one
+        message per batch instead of per image). Matches returned images to
+        out_paths in gallery order. Raises FlowBatchMismatch if the count is
+        not exactly N so the caller can fall back to per-image generation —
+        that keeps a bad batch from silently mis-labelling scenes.
+
+        Order caveat: this assumes the gallery lists new tiles oldest-first
+        (prompt order). Set flow_batch_reverse if a live check shows newest-
+        first. Verify order before trusting batching for distinct scenes.
+        """
+        assert len(prompts) == len(out_paths) and prompts
+        n = len(prompts)
+        if timeout_s is None:
+            timeout_s = 120 + 75 * n
+        self.ensure_project()
+        page = self.page
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(400)
+        if "/edit/" in page.url:
+            rooted = re.match(r"(.*?/project/[^/?#]+)", page.url)
+            if rooted:
+                page.goto(rooted.group(1), wait_until="domcontentloaded", timeout=60_000)
+                page.wait_for_timeout(3_000)
+        self._exit_editor()
+        before = set(self._ordered_image_srcs())
+
+        message = (
+            f"Generate exactly {n} images — ONE image for each of the {n} "
+            "numbered descriptions below, in the same order. Produce a single "
+            "image per description (no variations or alternates). Keep every "
+            "image in the SAME art style.\n\n"
+            + "\n\n".join(f"{i + 1}. {p}" for i, p in enumerate(prompts))
+        )
+        box = self._prompt_box()
+        box.click()
+        page.keyboard.press("Control+a")
+        page.keyboard.press("Delete")
+        box.type(message, delay=random.uniform(1, 4))
+        page.wait_for_timeout(500)
+        box.press("Enter")
+        page.wait_for_timeout(1_500)
+        try:
+            unsent = bool((box.inner_text() or "").strip())
+        except Exception:
+            unsent = False
+        if unsent and self._click_send(box):
+            print("    [flow_auto] batch: Enter did not send — clicked the send arrow")
+
+        start = time.time()
+        deadline = start + timeout_s
+        stable_since = None
+        last_count = -1
+        nudged = False
+        while time.time() < deadline:
+            page.wait_for_timeout(3_000)
+            new = [s for s in self._ordered_image_srcs() if s not in before]
+            if len(new) != last_count:
+                last_count = len(new)
+                stable_since = time.time()
+            if not new and not nudged and time.time() - start > 30:
+                nudged = True
+                try:
+                    still = bool((box.inner_text() or "").strip())
+                except Exception:
+                    still = False
+                if still and self._click_send(box):
+                    print("    [flow_auto] batch: nudged the send arrow")
+                continue
+            # Settle: reached the target count and stable for a few polls.
+            if len(new) >= n and stable_since and time.time() - stable_since > 10:
+                break
+
+        new = [s for s in self._ordered_image_srcs() if s not in before]
+        if bool(self.cfg.get("flow_batch_reverse", False)):
+            new = list(reversed(new))
+        if len(new) != n:
+            dump = self._dump_debug("batch_mismatch")
+            raise FlowBatchMismatch(
+                f"batch expected {n} images, got {len(new)} (debug: {dump}.png)"
+            )
+        from PIL import Image
+        saved: list[Path] = []
+        for src, out_path in zip(new, out_paths):
+            data = self._fetch_image(src)
+            if len(data) < 20_000:
+                raise FlowBatchMismatch(f"batch image for {out_path.name} too small")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = out_path.with_suffix(".dl")
+            tmp.write_bytes(data)
+            Image.open(tmp).convert("RGB").save(out_path)
+            tmp.unlink(missing_ok=True)
+            saved.append(out_path)
+        return saved
+
+
+class FlowBatchMismatch(RuntimeError):
+    """Raised when a batch returns a different image count than requested."""
+
+
 class FlowAutoBackend(ImageBackend):
     def generate(self, prompt: str, ref_images: list[Path], out_path: Path) -> Path:
         drv = FlowDriver.shared(self.cfg)
         result = drv.generate_image(prompt, out_path)
+        self._pause()
+        return result
+
+    def generate_batch(self, prompts: list[str], out_paths: list[Path]) -> list[Path]:
+        drv = FlowDriver.shared(self.cfg)
+        result = drv.generate_batch(prompts, out_paths)
+        self._pause()
+        return result
+
+    def _pause(self) -> None:
         lo = float(self.cfg.get("flow_min_gap_s", 12))
         hi = float(self.cfg.get("flow_max_gap_s", 30))
         time.sleep(random.uniform(lo, max(lo, hi)))
-        return result
 
 
 def flow_login(cfg: Config) -> None:

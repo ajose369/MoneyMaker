@@ -111,22 +111,66 @@ class ImageGen:
 
     # ---------- flow (semi-automated) support ----------
 
-    def _flow_prepare_if_needed(self, m: Manifest) -> None:
-        """image_backend 'flow' gets all images from one manual ZAPI FLOW round:
-        import whatever is in the inbox, or halt the stage with instructions."""
-        if self.cfg.get("image_backend", "local_sd") != "flow":
-            return
+    def _all_expected(self, m: Manifest) -> list[tuple[str, str, str]]:
+        """Every image the video needs: (prompt, relative path, QC expectation),
+        in canonical order (characters, environments, scenes)."""
         assert m.story
-        from .imagegen.flow_bulk import prepare_flow_images
-        expected: list[tuple[str, str]] = []
+        items: list[tuple[str, str, str]] = []
         for ch in m.story.characters:
-            expected.append((self._character_prompt(ch), f"assets/characters/{ch.id}.png"))
+            items.append((self._character_prompt(ch), f"assets/characters/{ch.id}.png",
+                          f"A single full-body illustration of one cartoon character: {ch.design_prompt}"))
         for env in m.story.environments:
-            expected.append((self._environment_prompt(env), f"assets/environments/{env.id}.png"))
+            items.append((self._environment_prompt(env), f"assets/environments/{env.id}.png",
+                          f"An empty cartoon background of: {env.image_prompt}"))
         for scene in m.story.scenes:
-            expected.append((self._scene_prompt(scene, with_refs=False),
-                             f"assets/scenes/scene_{scene.seq:03d}.png"))
-        prepare_flow_images(self.cfg, m, expected)
+            items.append((self._scene_prompt(scene, with_refs=False),
+                          f"assets/scenes/scene_{scene.seq:03d}.png",
+                          f"A cartoon frame showing: {scene.image_prompt}"))
+        return items
+
+    def _flow_prepare_if_needed(self, m: Manifest) -> None:
+        """Front-load image generation for the Flow backends so a whole video
+        is one manual round ('flow') or one batched browser pass ('flow_auto'
+        with flow_batch_size > 1). Runs at the first image stage; later stages
+        find their files already present."""
+        backend = self.cfg.get("image_backend", "local_sd")
+        if backend == "flow":
+            from .imagegen.flow_bulk import prepare_flow_images
+            expected = [(p, rel) for p, rel, _exp in self._all_expected(m)]
+            prepare_flow_images(self.cfg, m, expected)
+        elif backend == "flow_auto" and int(self.cfg.get("flow_batch_size", 1) or 1) > 1:
+            self._flow_auto_batch(m)
+
+    def _flow_auto_batch(self, m: Manifest) -> None:
+        """Generate all still-missing images in batched agent messages, then QC
+        each: rejects are unlinked so the normal per-image stage loop
+        regenerates them singly (with QC). A batch that returns the wrong image
+        count falls back to per-image for that whole chunk."""
+        from .imagegen.flow_playwright import FlowBatchMismatch
+        size = int(self.cfg.get("flow_batch_size", 1) or 1)
+        pending = [(p, rel, exp) for p, rel, exp in self._all_expected(m)
+                   if not m.path_for(rel).exists()]
+        if not pending:
+            return
+        print(f"  [flow_auto] batching {len(pending)} image(s) in groups of {size}")
+        for i in range(0, len(pending), size):
+            chunk = pending[i:i + size]
+            prompts = [p for p, _rel, _exp in chunk]
+            outs = [m.path_for(rel) for _p, rel, _exp in chunk]
+            try:
+                self.backend.generate_batch(prompts, outs)
+            except FlowBatchMismatch as e:
+                print(f"    [flow_auto] batch fell back to per-image ({e})")
+                continue  # per-image stage loop will generate these
+            # QC sweep: drop any batch image that fails, so it's regenerated
+            # singly (with the QC retry budget) by the stage loop.
+            if self.cfg.get("image_qc", True):
+                for (_p, rel, exp), out in zip(chunk, outs):
+                    if not out.exists():
+                        continue
+                    if not self.llm.vision_verdict(out, exp).approved:
+                        print(f"    [qc] batch image {out.name} rejected — will regenerate singly")
+                        out.unlink(missing_ok=True)
 
     # ---------- stages ----------
 

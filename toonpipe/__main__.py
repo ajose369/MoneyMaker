@@ -16,6 +16,15 @@ from __future__ import annotations
 import argparse
 import sys
 
+# Force UTF-8 console output: titles/metadata contain emoji (🤯) and content can
+# be Malayalam/Tamil/Hindi, which crash on Windows' default cp1252 stdout —
+# especially when piped (non-tty falls back to the locale encoding).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from .config import load_config
 from .manifest import Manifest, next_slug
 from .pipeline import STAGES, autopilot, run_stage, status

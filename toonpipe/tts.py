@@ -73,6 +73,33 @@ async def _synth(text: str, voice: str, rate: str, pitch: str, out_path: Path) -
     await communicate.save(str(out_path))
 
 
+def _run_async(coro) -> None:
+    """Run a coroutine to completion whether or not this thread already has a
+    running event loop. The flow_auto image backend leaves Playwright's sync-API
+    loop running on the main thread, so a plain asyncio.run() here raises
+    'cannot be called from a running event loop' — fall back to a private loop
+    in a worker thread in that case."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(coro)
+        return
+    import threading
+    err: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            asyncio.run(coro)
+        except BaseException as e:  # surface failures from the worker thread
+            err.append(e)
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+    if err:
+        raise err[0]
+
+
 def _synth_omnivoice(cfg: Config, text: str, speaker: str, m: Manifest, out_path: Path) -> bool:
     """Local TTS via OmniVoice-Studio's OpenAI-compatible API (localhost:3900).
 
@@ -136,7 +163,7 @@ def build_scene_audio(cfg: Config, m: Manifest) -> None:
                     done = _synth_omnivoice(cfg, dl.line, dl.speaker, m, lf)
                 if not done:
                     voice, pitch = _voice_for(cfg, m, dl.speaker)
-                    asyncio.run(_synth(dl.line, voice, rate, pitch, lf))
+                    _run_async(_synth(dl.line, voice, rate, pitch, lf))
             line_files.append(lf)
 
         if not line_files:

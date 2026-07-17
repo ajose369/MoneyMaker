@@ -3,6 +3,9 @@
 Providers (config `llm_provider`):
   - claude  — best writing quality; needs ANTHROPIC_API_KEY
   - gemini  — free-tier via the same GEMINI_API_KEY pool used for images
+  - nvidia  — free NIM catalogue (build.nvidia.com); needs NVIDIA_API_KEY.
+              Big models (qwen3.5-122b) without Gemini's free-tier transient
+              error storms — the most reliable free option.
   - ollama  — fully local (e.g. qwen3:8b); needs `ollama serve` running
 
 Provides:
@@ -16,6 +19,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +33,18 @@ from .config import Config
 from .manifest import ImageVerdict
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def _extract_json(text: str) -> str:
+    """Pull the JSON object out of a chat reply that may wrap it in reasoning
+    (<think>…</think>), markdown fences, or chatter. Open-weight models do all
+    three even when told not to."""
+    t = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", t, flags=re.S)
+    if fence:
+        t = fence.group(1).strip()
+    start, end = t.find("{"), t.rfind("}")
+    return t[start:end + 1] if start != -1 and end > start else t
 
 # USD per 1M tokens (input, output) — used for the ledger only.
 PRICES = {
@@ -114,6 +131,8 @@ class LLM:
             return self._ollama_structured(kind, system, user, schema)
         if self.provider == "gemini":
             return self._gemini_structured(kind, system, user, schema)
+        if self.provider == "nvidia":
+            return self._nvidia_structured(kind, system, user, schema, max_tokens)
 
         last_err: Exception | None = None
         for attempt in range(3):
@@ -234,6 +253,59 @@ class LLM:
         except Exception as e:
             # QC must never block the pipeline — fail open.
             return ImageVerdict(approved=True, reason=f"vision QC unavailable ({str(e)[:80]})")
+
+    # ---------- NVIDIA NIM (free cloud, OpenAI-compatible) ----------
+
+    def _nvidia_structured(self, kind: str, system: str, user: str, schema: type[T],
+                           max_tokens: int) -> T:
+        """Structured output via build.nvidia.com's OpenAI-compatible endpoint.
+
+        NIM exposes no schema-constrained decoding, so the schema goes in the
+        system prompt and the reply is validated with pydantic — the existing
+        retry-on-ValidationError loop handles slips. Model choice matters: pick
+        one that answers in plain content (qwen3.5-122b does); some catalogue
+        entries return empty content or 404 'not found for account' even though
+        they are listed.
+        """
+        key = os.environ.get("NVIDIA_API_KEY", "").strip()
+        if not key:
+            raise RuntimeError("NVIDIA_API_KEY is not set — add it to .env")
+        url = str(self.cfg.get("nvidia_url", "https://integrate.api.nvidia.com/v1")).rstrip("/")
+        model = str(self.cfg.get("nvidia_model", "qwen/qwen3.5-122b-a10b"))
+        sys_prompt = (
+            f"{system}\n\nRespond with ONLY one JSON object matching this schema. "
+            f"No prose, no markdown fences.\nSCHEMA:\n{json.dumps(schema.model_json_schema())}"
+        )
+        last_err: Exception | None = None
+        for _ in range(3):
+            try:
+                r = requests.post(
+                    f"{url}/chat/completions",
+                    headers={"Authorization": f"Bearer {key}",
+                             "Content-Type": "application/json"},
+                    json={
+                        "model": model,
+                        "messages": [{"role": "system", "content": sys_prompt},
+                                     {"role": "user", "content": user}],
+                        "max_tokens": max_tokens,
+                        "temperature": 0.7,
+                    },
+                    timeout=(15, 600),
+                )
+                r.raise_for_status()
+                content = (r.json()["choices"][0]["message"].get("content") or "").strip()
+                if not content:
+                    raise ValueError(f"empty content from {model} (a reasoning-only reply?)")
+                obj = schema.model_validate_json(_extract_json(content))
+                self.ledger.record(kind, f"nvidia:{model}", 0.0, {"note": "nvidia nim free tier"})
+                return obj
+            except ValidationError as e:
+                last_err = e
+                user += f"\n\nYour previous JSON failed validation: {e}. Output corrected JSON only."
+            except Exception as e:
+                last_err = e
+                time.sleep(5)
+        raise RuntimeError(f"NVIDIA structured generation '{kind}' failed: {last_err}")
 
     # ---------- Ollama fallback (free, local) ----------
 

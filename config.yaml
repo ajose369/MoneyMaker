@@ -50,6 +50,13 @@ flow_offscreen: true         # safer invisibility: real Chrome window parked far
                              # off-screen — you won't see it, Google can't tell
 flow_min_gap_s: 12           # flow_auto: polite random delay between generations
 flow_max_gap_s: 30
+# Batching stretches the free account's daily agent-message quota: ask for N
+# images in ONE message instead of one message each (~3-4x more images/day).
+# 1 = disabled (one image per message; the proven default). Batched images
+# still pass vision QC; a batch returning the wrong count falls back to
+# per-image automatically. VALIDATE gallery order live before raising above 1.
+flow_batch_size: 1           # try 3-4 once verified; keep 1 for guaranteed style match
+flow_batch_reverse: false    # set true if a live check shows the gallery lists newest-first
 local_sd_model: stabilityai/stable-diffusion-xl-base-1.0
 local_sd_device: cuda        # cuda | cpu (cpu works but is very slow)
 local_sd_steps: 28
@@ -83,14 +90,24 @@ image_qc_max_retries: 2
 
 # --- Models ---
 # llm_provider drives story writing, self-review, metadata, and image QC:
-#   gemini — $0 on the free-tier key pool in .env (recommended until Ollama is set up)
-#   ollama — fully local (your stated plan); run `ollama pull qwen3:8b` first.
-#            Image QC still uses Gemini vision (free) in this mode.
+#   nvidia — $0 on build.nvidia.com's free NIM catalogue (needs NVIDIA_API_KEY
+#            in .env). Large models and, unlike Gemini's free tier, no 5xx
+#            storms. Image QC still uses Gemini vision (free) in this mode.
+#   gemini — $0 on the free-tier key pool in .env, but the free tier throws
+#            frequent transient 5xx: measured 2026-07-16, retries burned 40+
+#            minutes on a single script before succeeding.
+#   ollama — fully local; run `ollama pull qwen3:8b` first.
 #            Tested 2026-07-14: qwen3:8b's Malayalam writing is NOT publishable
 #            (wrong subject, duplicated lines, ignores English-only prompt
-#            rules) — fine for plumbing tests, use gemini/claude for real videos.
+#            rules) — fine for plumbing tests, not for real videos.
 #   claude — best writing quality; needs ANTHROPIC_API_KEY in .env
-llm_provider: gemini
+llm_provider: nvidia
+# Verified on the free tier 2026-07-16. Many catalogue entries return an
+# instant 404 'not found for account' despite being listed, and reasoning-only
+# models return empty content — these three answer in plain content:
+#   qwen/qwen3.5-122b-a10b (1.2s)  openai/gpt-oss-120b  mistralai/mistral-medium-3.5-128b
+nvidia_model: qwen/qwen3.5-122b-a10b
+nvidia_url: "https://integrate.api.nvidia.com/v1"
 claude_model: claude-opus-4-8
 gemini_text_model: gemini-3.5-flash
 ollama_model: qwen3:8b       # fits the 8GB RTX 5060; llama3.1:8b also works
